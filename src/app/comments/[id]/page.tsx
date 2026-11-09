@@ -5,7 +5,9 @@ import { CommentDetail } from '@/components/comment-detail'
 import { DetailSkeleton } from '@/components/skeletons'
 import { UserAvatar } from '@/components/user-avatar'
 import { getComment, getComments } from '@/lib/comments-api'
-import { isLocalId, parsePositiveInt } from '@/lib/constants'
+import { isLocalId } from '@/lib/constants'
+import { getViewer } from '@/lib/dal'
+import { parsePositiveInt } from '@/lib/schemas'
 
 /** Страница отдельного комментария: динамический маршрут /comments/[id] */
 export default function CommentPage({ params }: PageProps<'/comments/[id]'>) {
@@ -37,14 +39,15 @@ async function CommentSection({ rawId }: { rawId: string }) {
   if (id === null) notFound()
 
   // Созданные в браузере комментарии есть только в store клиента
-  if (isLocalId(id)) return <CommentDetail id={id} initial={null} />
+  const viewer = await getViewer()
+  if (isLocalId(id)) return <CommentDetail id={id} initial={null} viewer={viewer} />
 
   const comment = await getComment(id)
   if (!comment) notFound()
 
   return (
     <>
-      <CommentDetail id={id} initial={comment} />
+      <CommentDetail id={id} initial={comment} viewer={viewer} />
       <Suspense fallback={<div className="skeleton h-40 w-full" />}>
         <RelatedComments postId={comment.postId} excludeId={id} />
       </Suspense>

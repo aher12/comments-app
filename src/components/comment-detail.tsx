@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { applyLocalChanges } from '@/store/comments-store'
 import { useCommentsStore, useStoreHydrated } from '@/store/provider'
-import type { Comment } from '@/types/comment'
+import type { Comment, Viewer } from '@/types/comment'
 import { CommentCard } from './comment-card'
 import { DetailSkeleton } from './skeletons'
 
@@ -11,7 +11,7 @@ import { DetailSkeleton } from './skeletons'
  * Клиентская часть страницы записи: накладывает локальные изменения из store
  * на комментарий, загруженный сервером (или берёт локально созданный).
  */
-export function CommentDetail({ id, initial }: { id: number; initial: Comment | null }) {
+export function CommentDetail({ id, initial, viewer }: { id: number; initial: Comment | null; viewer: Viewer | null }) {
   const created = useCommentsStore((s) => s.created)
   const updated = useCommentsStore((s) => s.updated)
   const deleted = useCommentsStore((s) => s.deleted)
@@ -49,7 +49,7 @@ export function CommentDetail({ id, initial }: { id: number; initial: Comment | 
 
   return (
     <ul>
-      <CommentCard comment={comment} detailed />
+      <CommentCard comment={comment} viewer={viewer} detailed />
     </ul>
   )
 }

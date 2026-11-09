@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { useStore } from 'zustand'
 import { createCommentsStore, type CommentsStore, type CommentsStoreApi } from './comments-store'
 
@@ -35,5 +35,7 @@ export const useCommentsStoreApi = useStoreApi
 /** true, когда данные из localStorage уже загружены в store (на сервере — всегда false) */
 export function useStoreHydrated() {
   const store = useStoreApi()
-  return useSyncExternalStore(store.persist.onFinishHydration, store.persist.hasHydrated, () => false)
+  // На сервере нет localStorage, и persist-middleware не добавляет store.persist — отсюда `?.`
+  const subscribe = useCallback((onChange: () => void) => store.persist?.onFinishHydration(onChange) ?? (() => {}), [store])
+  return useSyncExternalStore(subscribe, () => store.persist?.hasHydrated() ?? false, () => false)
 }

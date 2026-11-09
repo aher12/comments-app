@@ -1,25 +1,17 @@
-// Модель комментария в формате https://dummyjson.com/docs/comments
-export interface CommentUser {
-  id: number
-  username: string
-  fullName: string
-}
+// Типы выводятся из Zod-схем (z.infer) — см. lib/schemas.ts
+export type {
+  Comment,
+  CommentChanges,
+  CommentFormValues,
+  CommentInput,
+  CommentsPage,
+  CommentUser,
+  FieldErrors,
+  Role,
+  Viewer,
+} from '@/lib/schemas'
 
-export interface Comment {
-  id: number
-  body: string
-  postId: number
-  likes: number
-  user: CommentUser
-}
-
-// Ответ GET /comments и GET /comments/post/:id
-export interface CommentsPage {
-  comments: Comment[]
-  total: number
-  skip: number
-  limit: number
-}
+import type { FieldErrors } from '@/lib/schemas'
 
 export interface CommentsQuery {
   skip: number
@@ -27,15 +19,10 @@ export interface CommentsQuery {
   postId: number | null
 }
 
-// Поля, которые пользователь может менять
-export type CommentChanges = Partial<Pick<Comment, 'body' | 'postId' | 'likes'>>
+/** Код ответа при ошибке: 400 — неверные данные, 401 — не вошёл, 403 — нет прав, 404, 502 — DummyJSON */
+export type ErrorStatus = 400 | 401 | 403 | 404 | 502
 
-// Ввод формы создания (id и likes выдаёт "сервер")
-export interface CommentDraft {
-  body: string
-  postId: number
-  userId: number
-}
-
-// Результат Server Action: ошибки возвращаются значением, а не исключением
-export type ActionResult<T> = { ok: true; data: T } | { ok: false; error: string; fieldErrors?: Record<string, string> }
+// Результат Server Action / сервисного слоя: ошибки возвращаются значением, а не исключением
+export type ActionResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; status: ErrorStatus; error: string; fieldErrors?: FieldErrors }

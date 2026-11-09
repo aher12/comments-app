@@ -1,82 +1,126 @@
 'use client'
 
-import { useActionState, useRef, useState } from 'react'
-import { createCommentAction } from '@/lib/actions'
-import { BODY_MAX_LENGTH } from '@/lib/constants'
-import { useCommentsStore } from '@/store/provider'
-import type { ActionResult, Comment, CommentUser } from '@/types/comment'
+import { useId, useState, useTransition, type FormEvent } from 'react'
+import { BODY_MAX_LENGTH, POSTS_TOTAL } from '@/lib/constants'
+import { commentCreateSchema, toFieldErrors, type FieldErrors } from '@/lib/schemas'
+import type { ActionResult, CommentInput } from '@/types/comment'
 
-type FormState = Extract<ActionResult<Comment>, { ok: false }> | null
+interface CommentFormProps {
+  defaultValues?: { body?: string; postId?: number }
+  submitLabel: string
+  pendingLabel?: string
+  /** Вызывается только с данными, прошедшими Zod-проверку. Сервер проверит их ещё раз */
+  onSubmit: (values: CommentInput) => Promise<ActionResult<unknown>>
+  onCancel?: () => void
+}
 
 /**
- * Форма создания. Отправка — Server Action через useActionState (даёт pending и результат).
- * Список авторов приходит пропсом из Server Component.
+ * Форма комментария — одна для создания и изменения.
+ * Ввод проверяется той же Zod-схемой, что и на сервере: ошибка сразу видна рядом с полем.
+ * Ошибки, которые вернул сервер (400/401/403), показываются так же.
  */
-export function CommentForm({ users }: { users: CommentUser[] }) {
-  const addCreated = useCommentsStore((s) => s.addCreated)
-  const showToast = useCommentsStore((s) => s.showToast)
-  const [body, setBody] = useState('')
-  const [postId, setPostId] = useState(1)
-  const [userId, setUserId] = useState(users[0]?.id ?? 1)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
+export function CommentForm({ defaultValues, submitLabel, pendingLabel = 'Сохранение…', onSubmit, onCancel }: CommentFormProps) {
+  const id = useId()
+  const [body, setBody] = useState(defaultValues?.body ?? '')
+  const [postId, setPostId] = useState(String(defaultValues?.postId ?? 1))
+  const [errors, setErrors] = useState<FieldErrors>({})
+  const [formError, setFormError] = useState<string | null>(null)
+  const [isPending, startTransition] = useTransition()
 
-  const [state, formAction, isPending] = useActionState<FormState, FormData>(async (_prev, formData) => {
-    const result = await createCommentAction(formData)
-    if (!result.ok) {
-      showToast('error', result.error)
-      return result
+  const submit = (e: FormEvent) => {
+    e.preventDefault()
+    setFormError(null)
+
+    const parsed = commentCreateSchema.safeParse({ body, postId })
+    if (!parsed.success) {
+      setErrors(toFieldErrors(parsed.error))
+      return
     }
-    // DummyJSON вернул созданную запись, но не сохранил её — кладём в store
-    const saved = addCreated(result.data)
-    showToast('success', `Комментарий #${saved.id} добавлен`)
-    setBody('')
-    textareaRef.current?.focus()
-    return null
-  }, null)
+    setErrors({})
 
-  const fieldErrors = state?.fieldErrors ?? {}
+    startTransition(async () => {
+      const result = await onSubmit(parsed.data)
+      if (!result.ok) {
+        setErrors(result.fieldErrors ?? {})
+        setFormError(result.error)
+      }
+    })
+  }
+
+  const bodyId = `${id}-body`
+  const postIdId = `${id}-postId`
 
   return (
-    <form action={formAction} className="card bg-base-100 shadow">
-      <fieldset className="card-body gap-3">
-        <h2 className="card-title">Новый комментарий</h2>
-        <div>
+    <form onSubmit={submit} noValidate className="card bg-base-100 shadow">
+      <fieldset className="card-body gap-4" disabled={isPending}>
+        <div className="flex flex-col gap-1">
+          <label htmlFor={bodyId} className="font-medium">
+            Текст комментария
+          </label>
           <textarea
-            ref={textareaRef}
+            id={bodyId}
             name="body"
-            className={`textarea w-full ${fieldErrors.body ? 'textarea-error' : ''}`}
-            placeholder="Текст комментария…"
-            rows={3}
+            className={`textarea w-full ${errors.body ? 'textarea-error' : ''}`}
+            placeholder="Что вы думаете об этом посте?"
+            rows={4}
             value={body}
-            onChange={(e) => setBody(e.target.value)}
-            maxLength={BODY_MAX_LENGTH}
-            aria-label="Текст комментария"
+            onChange={(e) => {
+              setBody(e.target.value)
+              setErrors((prev) => ({ ...prev, body: undefined }))
+            }}
+            aria-invalid={errors.body ? true : undefined}
+            aria-describedby={errors.body ? `${bodyId}-error` : undefined}
           />
-          <div className="flex justify-between text-xs mt-1">
-            <span className="text-error">{fieldErrors.body}</span>
-            <span className="text-base-content/50">
+          <div className="flex justify-between gap-2 text-sm">
+            <span id={`${bodyId}-error`} className="text-error">
+              {errors.body}
+            </span>
+            <span className={body.length > BODY_MAX_LENGTH ? 'text-error' : 'text-base-content/50'}>
               {body.length}/{BODY_MAX_LENGTH}
             </span>
           </div>
         </div>
-        <div className="flex flex-col sm:flex-row gap-2">
-          <select name="userId" className="select sm:flex-1" value={userId} onChange={(e) => setUserId(Number(e.target.value))} aria-label="Автор">
-            {users.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.fullName} (@{u.username})
-              </option>
-            ))}
-          </select>
-          <label className={`input sm:w-36 shrink-0 ${fieldErrors.postId ? 'input-error' : ''}`}>
-            <span className="label">postId</span>
-            <input name="postId" type="number" min={1} value={postId} onChange={(e) => setPostId(Number(e.target.value))} />
+
+        <div className="flex flex-col gap-1">
+          <label htmlFor={postIdId} className="font-medium">
+            Номер поста
           </label>
-          <button type="submit" className="btn btn-primary" disabled={isPending || !body.trim()}>
+          <input
+            id={postIdId}
+            name="postId"
+            type="number"
+            inputMode="numeric"
+            className={`input w-full sm:w-48 ${errors.postId ? 'input-error' : ''}`}
+            value={postId}
+            onChange={(e) => {
+              setPostId(e.target.value)
+              setErrors((prev) => ({ ...prev, postId: undefined }))
+            }}
+            aria-invalid={errors.postId ? true : undefined}
+            aria-describedby={`${postIdId}-hint`}
+          />
+          <span id={`${postIdId}-hint`} className={`text-sm ${errors.postId ? 'text-error' : 'text-base-content/50'}`}>
+            {errors.postId ?? `От 1 до ${POSTS_TOTAL}`}
+          </span>
+        </div>
+
+        {formError && (
+          <div role="alert" className="alert alert-error alert-soft">
+            <span>{formError}</span>
+          </div>
+        )}
+
+        <div className="card-actions justify-end">
+          {onCancel && (
+            <button type="button" className="btn btn-ghost" onClick={onCancel}>
+              Отмена
+            </button>
+          )}
+          <button type="submit" className="btn btn-primary">
             {isPending && <span className="loading loading-spinner loading-sm" />}
-            {isPending ? 'Отправка…' : 'Опубликовать'}
+            {isPending ? pendingLabel : submitLabel}
           </button>
         </div>
-        {fieldErrors.postId && <span className="text-error text-xs">{fieldErrors.postId}</span>}
       </fieldset>
     </form>
   )

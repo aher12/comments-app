@@ -4,9 +4,10 @@ import { useInfiniteQuery } from '@tanstack/react-query'
 import Link from 'next/link'
 import { useMemo } from 'react'
 import { PAGE_SIZE } from '@/lib/constants'
+import { apiErrorSchema, commentsPageSchema } from '@/lib/schemas'
 import { applyLocalChanges } from '@/store/comments-store'
 import { useCommentsStore } from '@/store/provider'
-import type { Comment, CommentsPage } from '@/types/comment'
+import type { Comment, CommentsPage, Viewer } from '@/types/comment'
 import { CommentCard } from './comment-card'
 import { CommentCardSkeleton } from './skeletons'
 
@@ -15,21 +16,28 @@ async function fetchCommentsPage(skip: number, postId: number | null): Promise<C
   const params = new URLSearchParams({ skip: String(skip), limit: String(PAGE_SIZE) })
   if (postId !== null) params.set('postId', String(postId))
   const res = await fetch(`/api/comments?${params}`)
-  const data = await res.json().catch(() => null)
-  if (!res.ok) throw new Error(data?.message ?? `Ошибка ${res.status}`)
-  return data as CommentsPage
+  const data: unknown = await res.json().catch(() => null)
+  if (!res.ok) {
+    const error = apiErrorSchema.safeParse(data)
+    throw new Error(error.success ? error.data.message : `Ошибка ${res.status}`)
+  }
+  // Ответ сервера — внешние данные: проверяем схемой вместо `as CommentsPage`
+  const page = commentsPageSchema.safeParse(data)
+  if (!page.success) throw new Error('Сервер вернул данные в неожиданном формате')
+  return page.data
 }
 
 interface CommentsFeedProps {
   initialPage: CommentsPage // первая страница, загруженная Server Component
   postId: number | null
+  viewer: Viewer | null
 }
 
 /**
  * Infinite query: первая страница приходит с сервера (initialData),
  * следующие догружаются кнопкой «Загрузить ещё» через GET /api/comments.
  */
-export function CommentsFeed({ initialPage, postId }: CommentsFeedProps) {
+export function CommentsFeed({ initialPage, postId, viewer }: CommentsFeedProps) {
   const { data, error, fetchNextPage, hasNextPage, isFetchingNextPage, isFetchNextPageError, isRefetching, isRefetchError, refetch } =
     useInfiniteQuery({
       queryKey: ['comments', { postId }],
@@ -100,7 +108,7 @@ export function CommentsFeed({ initialPage, postId }: CommentsFeedProps) {
           <div className="card-body items-center text-center">
             <span className="text-4xl">💬</span>
             <h3 className="font-semibold">{postId === null ? 'Комментариев пока нет' : `У поста #${postId} пока нет комментариев`}</h3>
-            <p className="text-base-content/60">Станьте первым — добавьте комментарий через форму выше.</p>
+            <p className="text-base-content/60">Станьте первым — нажмите «Новый комментарий».</p>
             {postId !== null && (
               <Link href="/" className="btn btn-sm btn-ghost">
                 Показать все посты
@@ -117,7 +125,7 @@ export function CommentsFeed({ initialPage, postId }: CommentsFeedProps) {
         <ul className="flex flex-col gap-3">
           {/* key — стабильный id записи, а не индекс */}
           {visible.map((comment) => (
-            <CommentCard key={comment.id} comment={comment} />
+            <CommentCard key={comment.id} comment={comment} viewer={viewer} />
           ))}
           {isFetchingNextPage && Array.from({ length: 3 }, (_, i) => <CommentCardSkeleton key={`skeleton-${i}`} />)}
         </ul>
